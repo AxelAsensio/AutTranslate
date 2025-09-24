@@ -10,5 +10,7 @@ Traducción de idioma auto-detectado al español.
 Limitaciones:
 
 NO utilizar en un navegador (incluyendo archivos PDF abiertos en navegador)
+
 Ventana no reescalable.
+
 Pestaña de traducción fija y limitada.
