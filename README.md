@@ -2,6 +2,16 @@
 
 AutTranslate es un intento de traductor automático que emplea Tesseract para capturar la pantalla debajo de su ventana semi-transparente y GoogleTranslate para ofrecer una traducción en tiempo real al español.
 
+v.0.2
+
+Ventana semitransparente reeplazada por pantalla transparente con borde.
+
+Reducción en la frecuencia en la que se realiza el OCR.
+
+OCR no se realiza cuando la ventana esta siendo arrastrada.
+
+OCR ahora se realiza en un hilo para mejorar el rendimineto.
+
 v.0.1
 
 Funcionalidad Básica.
