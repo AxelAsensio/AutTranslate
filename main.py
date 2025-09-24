@@ -72,13 +72,33 @@ class OCRWindow(QMainWindow):
             img = enhancer.enhance(2.0)
 
             custom_config = r'--oem 3 --psm 6'
-            text = pytesseract.image_to_string(img, config=custom_config)
+            # Try to detect language for Tesseract
+            lang_map = {
+                'en': 'eng', 'es': 'spa', 'fr': 'fra', 'de': 'deu', 'it': 'ita',
+                'ja': 'jpn', 'zh-cn': 'chi_sim', 'zh-tw': 'chi_tra', 'zh': 'chi_sim',
+                'ru': 'rus', 'pt': 'por', 'nl': 'nld', 'ko': 'kor'
+            }
 
-            print(f"[OCR] Recognized: {text!r}")
-            shown_text = ""
+            # Use multiple languages for initial OCR
+            tesseract_langs = 'spa+jpn+chi_sim+rus'
+            text = pytesseract.image_to_string(img, lang=tesseract_langs, config=custom_config)
+            detected_lang = 'en'
             if text.strip():
                 try:
                     detected_lang = detect(text)
+                    tesseract_lang = lang_map.get(detected_lang, 'spa')
+                    # If not English, try again with detected language
+                    if tesseract_lang != 'spa':
+                        text2 = pytesseract.image_to_string(img, lang=tesseract_lang, config=custom_config)
+                        if text2.strip():
+                            text = text2
+                except Exception:
+                    pass
+
+            print(f"[OCR] Recognized: {text!r} (lang: {tesseract_lang})")
+            shown_text = ""
+            if text.strip():
+                try:
                     if detected_lang != 'es':
                         shown_text = GoogleTranslator(source=detected_lang, target='es').translate(text)
                     else:
