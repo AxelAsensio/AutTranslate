@@ -1,4 +1,6 @@
 import sys
+import threading
+from PyQt5.QtCore import pyqtSignal
 import ctypes
 import pytesseract
 from PyQt5.QtCore import Qt
@@ -18,6 +20,7 @@ except Exception:
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 class OCRWindow(QMainWindow):
+    ocr_result_signal = pyqtSignal(str)
     
     # ...existing code...
     def __init__(self):
@@ -33,66 +36,76 @@ class OCRWindow(QMainWindow):
         # Fixed geometry: wide and near the bottom
         self.text_label.setGeometry(20, 220, 860, 60)
 
-        self.timer = self.startTimer(200)
+        self.ocr_running = False
+        self.ocr_paused = False
+        self.ocr_result_signal.connect(self.update_label)
+        self.timer = self.startTimer(700)
 
     def timerEvent(self, event):
-        if event.timerId() == self.timer:
-            self.perform_ocr()
+        if event.timerId() == self.timer and not self.ocr_paused and not self.ocr_running:
+            self.ocr_running = True
+            threading.Thread(target=self.perform_ocr, daemon=True).start()
 
     def perform_ocr(self):
-        screen = QGuiApplication.primaryScreen()
-        if not screen:
-            self.text_label.setText("No se pudo obtener la pantalla.")
-            return
+        try:
+            screen = QGuiApplication.primaryScreen()
+            if not screen:
+                self.ocr_result_signal.emit("No se pudo obtener la pantalla.")
+                return
 
-        # Capturar el área de pantalla debajo de la ventana (no la ventana en sí)
-        geo = self.geometry()
-        x = self.x()
-        y = self.y()
-        w = geo.width()
-        h = geo.height()
-        screenshot = screen.grabWindow(0, x, y, w, h).toImage()
-        screenshot = screenshot.convertToFormat(4)
-        width = screenshot.width()
-        height = screenshot.height()
+            geo = self.geometry()
+            x = self.x()
+            y = self.y()
+            w = geo.width()
+            h = geo.height()
+            screenshot = screen.grabWindow(0, x, y, w, h).toImage()
+            screenshot = screenshot.convertToFormat(4)
+            width = screenshot.width()
+            height = screenshot.height()
 
-        ptr = screenshot.bits()
-        ptr.setsize(screenshot.byteCount())
-        img = Image.frombytes("RGBA", (width, height), ptr.asstring())
+            ptr = screenshot.bits()
+            ptr.setsize(screenshot.byteCount())
+            img = Image.frombytes("RGBA", (width, height), ptr.asstring())
 
-        # Procesamiento de imagen: escala de grises y aumento de contraste
-        img = img.convert('L')
-        enhancer = ImageEnhance.Contrast(img)
-        img = enhancer.enhance(2.0)
+            img = img.convert('L')
+            enhancer = ImageEnhance.Contrast(img)
+            img = enhancer.enhance(2.0)
 
-        # OCR con configuración mejorada
-        custom_config = r'--oem 3 --psm 6'
-        text = pytesseract.image_to_string(img, config=custom_config)
+            custom_config = r'--oem 3 --psm 6'
+            text = pytesseract.image_to_string(img, config=custom_config)
 
-        print(f"[OCR] Recognized: {text!r}")
-        shown_text = ""
-        if text.strip():
-            try:
-                detected_lang = detect(text)
-                if detected_lang != 'es':
-                    shown_text = GoogleTranslator(source=detected_lang, target='es').translate(text)
-                else:
-                    shown_text = text
-            except Exception as e:
-                shown_text = f"Error: {str(e)}"
-        else:
-            shown_text = "No text found"
+            print(f"[OCR] Recognized: {text!r}")
+            shown_text = ""
+            if text.strip():
+                try:
+                    detected_lang = detect(text)
+                    if detected_lang != 'es':
+                        shown_text = GoogleTranslator(source=detected_lang, target='es').translate(text)
+                    else:
+                        shown_text = text
+                except Exception as e:
+                    shown_text = f"Error: {str(e)}"
+            else:
+                shown_text = "No text found"
+            self.ocr_result_signal.emit(shown_text)
+        finally:
+            self.ocr_running = False
+
+    def update_label(self, shown_text):
         self.text_label.setText(shown_text)
         self.text_label.repaint()
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setBrush(QColor(0, 0, 0, 100))
-        painter.setPen(Qt.NoPen)
-        painter.drawRect(self.rect())
+        # No fill, fully transparent background
+        painter.setBrush(Qt.NoBrush)
+        # Draw a 1px border (e.g., blue)
+        painter.setPen(QColor(0, 120, 215, 255))
+        painter.drawRect(self.rect().adjusted(0, 0, -1, -1))
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
+            self.ocr_paused = True
             self.old_pos = event.globalPos()
 
     def mouseMoveEvent(self, event):
@@ -100,6 +113,9 @@ class OCRWindow(QMainWindow):
             delta = event.globalPos() - self.old_pos
             self.move(self.x() + delta.x(), self.y() + delta.y())
             self.old_pos = event.globalPos()
+    def mouseReleaseEvent(self, event):
+        self.ocr_paused = False
+        super().mouseReleaseEvent(event)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
