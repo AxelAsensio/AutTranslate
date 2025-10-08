@@ -4,6 +4,9 @@ AutTranslate es un intento de traductor automático que emplea Tesseract para ca
 
 Por favor descarga tanto el código fuente como los ejecutables del ultimo release.
 
+# v.1.0
+Cambio completo del interfaz y funcionamiento del programa. Implementación de dos modos, snapshot y tiempo real. Selector de idioma a traducir para mejorar el rendimiento. Personalización del color.
+
 # v.0.3
 Añadido soporte para español, ingles, frances, italiano, portugues, japones, chino y alemán.
 
