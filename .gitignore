@@ -1,0 +1,10 @@
+# Ignorar archivos de build y ejecutables grandes
+build/
+*.exe
+*.spec
+*.zip
+*.toc
+*.pkg
+*.pyc
+*.pyz
+*.html
