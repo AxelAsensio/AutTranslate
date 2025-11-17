@@ -10,14 +10,6 @@ from PIL import Image, ImageEnhance
 
 from deep_translator import GoogleTranslator
 
-# OPTIMIZACIÓN POSIBLE:
-# Para mejorar el rendimiento, se puede hacer una pasada rápida de OCR sobre una pequeña región de la imagen (por ejemplo, la primera línea),
-# detectar el idioma con una librería rápida como langdetect o fastText, y luego hacer el OCR completo solo con el idioma detectado.
-# Esto evita cargar todos los paquetes de idiomas en cada ciclo. Además, para evitar hacer dos OCR cada 700 ms, esta detección inicial
-# podría ejecutarse solo cuando el usuario pulse la pantalla (por ejemplo, al mover o hacer clic en la ventana), y no en cada ciclo automático.
-# Otra mejora posible: buscar una forma de pausar el OCR si la imagen no ha cambiado, o evitar traducir/mostrar resultados si el texto es el mismo que el anterior. Esto puede mejorar el rendimiento y la experiencia de usuario.
-# Comprobar lógica y optimizacion del código.
-#Nuevo enfoque: botón para seleccionar región de pantalla (similar a la herramienta de recorte de Windows). Opción de hacer OCR en tiempo real o en snapshots. Añadir botón para cambiar de modo. Ver posibilidad de pausar y reiniciar OCR.
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2) ##Ajusta el proceso para el escalado de la pantalla
 except Exception:
@@ -26,10 +18,9 @@ except Exception:
 # Ruta por defecto de Tesseract (mira a ver si puedes hacer que lo encuentre solo)
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
-class OCRWindow(QMainWindow):
-    ocr_result_signal = pyqtSignal(str)
+class VentanaOCR(QMainWindow):
+    resultado_ocr_signal = pyqtSignal(str)
     
-    # ...existing code...
     def __init__(self):
         super().__init__()
         
@@ -39,110 +30,110 @@ class OCRWindow(QMainWindow):
         self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
         self.setWindowOpacity(0.7)
         # Botones en la parte superior
-        self.select_button = QPushButton("⬚", self)
-        self.select_button.setGeometry(10, 5, 30, 30)
-        
-        self.pause_button = QPushButton("▶", self)
-        self.pause_button.setGeometry(50, 5, 30, 30)
-        
-        self.snapshot_button = QPushButton("📷", self)
-        self.snapshot_button.setGeometry(90, 5, 30, 30)
-        
-        self.lang_combo = QComboBox(self)
-        self.lang_combo.setGeometry(130, 5, 80, 30)
-        self.lang_combo.addItems(["Español", "Inglés", "Francés", "Alemán", "Italiano", "Japonés", "Chino", "Portugués"])
-        
-        self.color_button = QPushButton("●", self)
-        self.color_button.setGeometry(220, 5, 30, 30)
-        
-        self.minimize_button = QPushButton("−", self)
-        self.minimize_button.setGeometry(830, 5, 30, 30)
-        
-        self.close_button = QPushButton("×", self)
-        self.close_button.setGeometry(870, 5, 30, 30)
-        
-        self.text_label = QLabel("Selecciona una región para comenzar", self)
-        self.text_label.setStyleSheet("color: white; font-size: 18px; font-weight: bold; padding: 10px;")
-        self.text_label.setWordWrap(True)
-        self.text_label.setAlignment(Qt.AlignCenter)
-        self.text_label.setGeometry(10, 50, 880, 240)
+        self.boton_seleccionar = QPushButton("⬚", self)
+        self.boton_seleccionar.setGeometry(10, 5, 30, 30)
+
+        self.boton_pausa = QPushButton("▶", self)
+        self.boton_pausa.setGeometry(50, 5, 30, 30)
+
+        self.boton_captura = QPushButton("📷", self)
+        self.boton_captura.setGeometry(90, 5, 30, 30)
+
+        self.combo_idioma = QComboBox(self)
+        self.combo_idioma.setGeometry(130, 5, 80, 30)
+        self.combo_idioma.addItems(["Español", "Inglés", "Francés", "Alemán", "Italiano", "Japonés", "Chino", "Portugués"])
+
+        self.boton_color = QPushButton("●", self)
+        self.boton_color.setGeometry(220, 5, 30, 30)
+
+        self.boton_minimizar = QPushButton("−", self)
+        self.boton_minimizar.setGeometry(830, 5, 30, 30)
+
+        self.boton_cerrar = QPushButton("×", self)
+        self.boton_cerrar.setGeometry(870, 5, 30, 30)
+
+        self.etiqueta_texto = QLabel("Selecciona una región para comenzar", self)
+        self.etiqueta_texto.setStyleSheet("color: white; font-size: 18px; font-weight: bold; padding: 10px;")
+        self.etiqueta_texto.setWordWrap(True)
+        self.etiqueta_texto.setAlignment(Qt.AlignCenter)
+        self.etiqueta_texto.setGeometry(10, 50, 880, 240)
         ## Variables de control de OCR##
-        self.ocr_running = False
-        self.ocr_paused = True
-        self.continuous_mode = True
-        self.ocr_region = None
-        self.bg_color = QColor(0, 120, 215)
-        self.lang_map = {
+        self.ocr_en_ejecucion = False
+        self.ocr_pausado = True
+        self.modo_continuo = True
+        self.region_ocr = None
+        self.color_fondo = QColor(0, 120, 215)
+        self.mapa_idiomas = {
             'Español': 'spa', 'Inglés': 'eng', 'Francés': 'fra', 'Alemán': 'deu',
             'Italiano': 'ita', 'Japonés': 'jpn', 'Chino': 'chi_sim', 'Portugués': 'por'
         }
-        self.ocr_result_signal.connect(self.update_label)
+        self.resultado_ocr_signal.connect(self.actualizar_etiqueta)
         self.timer = None
         
         # Conectar botones
-        self.select_button.clicked.connect(self.select_region)
-        self.pause_button.clicked.connect(self.toggle_pause)
-        self.snapshot_button.clicked.connect(self.take_snapshot)
-        self.color_button.clicked.connect(self.change_color)
-        self.minimize_button.clicked.connect(self.showMinimized)
-        self.close_button.clicked.connect(self.close)
+        self.boton_seleccionar.clicked.connect(self.seleccionar_region)
+        self.boton_pausa.clicked.connect(self.alternar_pausa)
+        self.boton_captura.clicked.connect(self.tomar_snapshot)
+        self.boton_color.clicked.connect(self.cambiar_color)
+        self.boton_minimizar.clicked.connect(self.showMinimized)
+        self.boton_cerrar.clicked.connect(self.close)
 
-    def select_region(self):
+    def seleccionar_region(self):
         self.hide()
         self.region_selector = RegionSelector()
-        self.region_selector.region_selected.connect(self.set_ocr_region)
+        self.region_selector.region_selected.connect(self.establecer_region_ocr)
         self.region_selector.show()
         
-    def set_ocr_region(self, x, y, w, h):
-        self.ocr_region = (x, y, w, h)
+    def establecer_region_ocr(self, x, y, w, h):
+        self.region_ocr = (x, y, w, h)
         self.show()
-        if self.continuous_mode and not self.ocr_paused:
-            self.start_continuous_ocr()
-        self.text_label.setText("Región seleccionada")
+        if self.modo_continuo and not self.ocr_pausado:
+            self.iniciar_ocr_continuo()
+        self.etiqueta_texto.setText("Región seleccionada")
         
-    def toggle_pause(self):
-        self.ocr_paused = not self.ocr_paused
-        self.pause_button.setText("▶" if self.ocr_paused else "⏸")
-        if self.ocr_paused:
-            self.stop_continuous_ocr()
-            self.text_label.setText("OCR pausado")
-        elif self.continuous_mode and self.ocr_region:
-            self.start_continuous_ocr()
+    def alternar_pausa(self):
+        self.ocr_pausado = not self.ocr_pausado
+        self.boton_pausa.setText("▶" if self.ocr_pausado else "⏸")
+        if self.ocr_pausado:
+            self.detener_ocr_continuo()
+            self.etiqueta_texto.setText("OCR pausado")
+        elif self.modo_continuo and self.region_ocr:
+            self.iniciar_ocr_continuo()
             
-    def take_snapshot(self):
-        if not self.ocr_region:
-            self.text_label.setText("Selecciona una región primero")
+    def tomar_snapshot(self):
+        if not self.region_ocr:
+            self.etiqueta_texto.setText("Selecciona una región primero")
             return
-        self.continuous_mode = False
-        self.stop_continuous_ocr()
-        if not self.ocr_running:
-            self.ocr_running = True
-            threading.Thread(target=self.perform_ocr, daemon=True).start()
+        self.modo_continuo = False
+        self.detener_ocr_continuo()
+        if not self.ocr_en_ejecucion:
+            self.ocr_en_ejecucion = True
+            threading.Thread(target=self.realizar_ocr, daemon=True).start()
             
-    def start_continuous_ocr(self):
-        self.continuous_mode = True
+    def iniciar_ocr_continuo(self):
+        self.modo_continuo = True
         if self.timer:
             self.killTimer(self.timer)
         self.timer = self.startTimer(700)
         
-    def stop_continuous_ocr(self):
+    def detener_ocr_continuo(self):
         if self.timer:
             self.killTimer(self.timer)
             self.timer = None
             
     def timerEvent(self, event):
-        if event.timerId() == self.timer and self.continuous_mode and not self.ocr_paused and not self.ocr_running and self.ocr_region:
-            self.ocr_running = True
-            threading.Thread(target=self.perform_ocr, daemon=True).start()
+        if event.timerId() == self.timer and self.modo_continuo and not self.ocr_pausado and not self.ocr_en_ejecucion and self.region_ocr:
+            self.ocr_en_ejecucion = True
+            threading.Thread(target=self.realizar_ocr, daemon=True).start()
 
-    def perform_ocr(self):
+    def realizar_ocr(self):
         try:
             screen = QGuiApplication.primaryScreen()
             if not screen:
-                self.ocr_result_signal.emit("No se pudo obtener la pantalla.")
+                self.resultado_ocr_signal.emit("No se pudo obtener la pantalla.")
                 return
                 
-            x, y, w, h = self.ocr_region
+            x, y, w, h = self.region_ocr
             screenshot = screen.grabWindow(0, x, y, w, h).toImage()
             screenshot = screenshot.convertToFormat(4)
             width = screenshot.width()
@@ -157,15 +148,15 @@ class OCRWindow(QMainWindow):
             img = enhancer.enhance(2.0)
 
             custom_config = r'--oem 3 --psm 6'
-            selected_lang = self.lang_combo.currentText()
-            tesseract_lang = self.lang_map[selected_lang]
+            idioma_seleccionado = self.combo_idioma.currentText()
+            tesseract_lang = self.mapa_idiomas[idioma_seleccionado]
             
             text = pytesseract.image_to_string(img, lang=tesseract_lang, config=custom_config)
             
-            shown_text = ""
+            texto_mostrado = ""
             if text.strip():
                 try:
-                    if selected_lang != 'Español':
+                    if idioma_seleccionado != 'Español':
                         source_lang = tesseract_lang
                         if tesseract_lang == 'chi_sim':
                             source_lang = 'zh'
@@ -181,32 +172,32 @@ class OCRWindow(QMainWindow):
                             source_lang = 'it'
                         elif tesseract_lang == 'por':
                             source_lang = 'pt'
-                        shown_text = GoogleTranslator(source=source_lang, target='es').translate(text)
+                        texto_mostrado = GoogleTranslator(source=source_lang, target='es').translate(text)
                     else:
-                        shown_text = text
+                        texto_mostrado = text
                 except Exception as e:
-                    shown_text = f"Error: {str(e)}"
+                    texto_mostrado = f"Error: {str(e)}"
             else:
-                shown_text = "No se encontró texto"
-            self.ocr_result_signal.emit(shown_text)
+                texto_mostrado = "No se encontró texto"
+            self.resultado_ocr_signal.emit(texto_mostrado)
         finally:
-            self.ocr_running = False
+            self.ocr_en_ejecucion = False
 
-    def update_label(self, shown_text):
-        self.text_label.setText(shown_text)
-        self.text_label.repaint()
+    def actualizar_etiqueta(self, shown_text):
+        self.etiqueta_texto.setText(shown_text)
+        self.etiqueta_texto.repaint()
 
 
         
-    def change_color(self):
-        color = QColorDialog.getColor(self.bg_color, self)
+    def cambiar_color(self):
+        color = QColorDialog.getColor(self.color_fondo, self)
         if color.isValid():
-            self.bg_color = color
-            self.update_button_styles()
+            self.color_fondo = color
+            self.actualizar_estilos_botones()
             self.update()
     
-    def update_button_styles(self):
-        darker_color = self.bg_color.darker(130)
+    def actualizar_estilos_botones(self):
+        darker_color = self.color_fondo.darker(130)
         
         button_style = f"""
         QPushButton {{
@@ -221,12 +212,12 @@ class OCRWindow(QMainWindow):
         }}
         """
         
-        self.select_button.setStyleSheet(button_style)
-        self.pause_button.setStyleSheet(button_style)
-        self.snapshot_button.setStyleSheet(button_style)
-        self.color_button.setStyleSheet(button_style)
-        self.minimize_button.setStyleSheet(button_style)
-        self.close_button.setStyleSheet(button_style)
+        self.boton_seleccionar.setStyleSheet(button_style)
+        self.boton_pausa.setStyleSheet(button_style)
+        self.boton_captura.setStyleSheet(button_style)
+        self.boton_color.setStyleSheet(button_style)
+        self.boton_minimizar.setStyleSheet(button_style)
+        self.boton_cerrar.setStyleSheet(button_style)
         
         combo_style = f"""
         QComboBox {{
@@ -240,14 +231,18 @@ class OCRWindow(QMainWindow):
             border: none;
         }}
         """
-        self.lang_combo.setStyleSheet(combo_style)
+        self.combo_idioma.setStyleSheet(combo_style)
+
+    # Alias para compatibilidad con llamadas previas que usan el nombre en inglés
+    def update_button_styles(self):
+        self.actualizar_estilos_botones()
     
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), self.bg_color)
+        painter.fillRect(self.rect(), self.color_fondo)
         
         # Barra superior más oscura
-        darker_color = self.bg_color.darker(130)
+        darker_color = self.color_fondo.darker(130)
         painter.fillRect(0, 0, self.width(), 40, darker_color)
         
         self.update_button_styles()
@@ -255,7 +250,7 @@ class OCRWindow(QMainWindow):
     ##Funciones para mover la ventana##
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.ocr_paused = True
+            self.ocr_pausado = True
             self.old_pos = event.globalPos()
 
     def mouseMoveEvent(self, event):
@@ -264,7 +259,7 @@ class OCRWindow(QMainWindow):
             self.move(self.x() + delta.x(), self.y() + delta.y())
             self.old_pos = event.globalPos()
     def mouseReleaseEvent(self, event):
-        self.ocr_paused = False
+        self.ocr_pausado = False
         super().mouseReleaseEvent(event)
 
 class RegionSelector(QMainWindow):
@@ -303,6 +298,6 @@ class RegionSelector(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = OCRWindow()
+    window = VentanaOCR()
     window.show()
     sys.exit(app.exec_())

@@ -2,3 +2,15 @@ PyQt5==5.15.9
 Pillow==10.0.1
 pytesseract==0.3.10
 deep-translator==1.11.4
+
+# Comandos de instalación (ejemplos):
+# Instalar desde este archivo:
+#   pip install -r requirements.txt
+# Instalar paquetes individualmente:
+#   pip install PyQt5==5.15.9
+#   pip install Pillow==10.0.1
+#   pip install pytesseract==0.3.10
+#   pip install deep-translator==1.11.4
+# En PowerShell (crear y activar entorno virtual):
+#   python -m venv venv
+#   .\venv\Scripts\Activate.ps1
