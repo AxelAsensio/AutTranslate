@@ -2,11 +2,15 @@ import sys
 import threading
 from PyQt5.QtCore import pyqtSignal
 import ctypes
+import urllib.request
+import shutil
 import pytesseract
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPainter, QColor, QGuiApplication
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QPushButton, QColorDialog, QComboBox, QRubberBand
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QPushButton, QColorDialog, QComboBox, QRubberBand, QProgressBar, QMessageBox
 from PIL import Image, ImageEnhance
+import os
+from datetime import date
 
 from deep_translator import GoogleTranslator
 
@@ -20,16 +24,16 @@ pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tessera
 
 class VentanaOCR(QMainWindow):
     resultado_ocr_signal = pyqtSignal(str)
+    download_progress_signal = pyqtSignal(int)
+    download_status_signal = pyqtSignal(str)
     
     def __init__(self):
         super().__init__()
         
-        ## Configuración de la ventana ##
-        self.setWindowTitle("Traductor Automático")
+        self.setWindowTitle("Traductor")
         self.setGeometry(100, 100, 900, 300)
         self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
         self.setWindowOpacity(0.7)
-        # Botones en la parte superior
         self.boton_seleccionar = QPushButton("⬚", self)
         self.boton_seleccionar.setGeometry(10, 5, 30, 30)
 
@@ -39,12 +43,54 @@ class VentanaOCR(QMainWindow):
         self.boton_captura = QPushButton("📷", self)
         self.boton_captura.setGeometry(90, 5, 30, 30)
 
+        # mapa (display, tesseract_code, google_code)
+        idiomas = [
+            ("Chino", 'chi_sim', 'zh'),
+            ("Español", 'spa', 'es'),
+            ("Inglés", 'eng', 'en'),
+            ("Hindi", 'hin', 'hi'),
+            ("Bengalí", 'ben', 'bn'),
+            ("Portugués", 'por', 'pt'),
+            ("Ruso", 'rus', 'ru'),
+            ("Japonés", 'jpn', 'ja'),
+            ("Punjabi", 'pan', 'pa'),
+            ("Maratí", 'mar', 'mr'),
+            ("Telugú", 'tel', 'te'),
+            ("Turco", 'tur', 'tr'),
+            ("Coreano", 'kor', 'ko'),
+            ("Francés", 'fra', 'fr'),
+            ("Alemán", 'deu', 'de'),
+            ("Vietnamita", 'vie', 'vi'),
+            ("Italiano", 'ita', 'it'),
+            ("Tailandés", 'tha', 'th'),
+            ("Gujarati", 'guj', 'gu'),
+            ("Polaco", 'pol', 'pl'),
+            ("Ucraniano", 'ukr', 'uk'),
+            ("Persa", 'fas', 'fa'),
+            ("Holandés", 'nld', 'nl'),
+            ("Rumano", 'ron', 'ro'),
+            ("Griego", 'ell', 'el'),
+            ("Checo", 'ces', 'cs'),
+            ("Sueco", 'swe', 'sv'),
+            ("Hebreo", 'heb', 'he'),
+            ("Húngaro", 'hun', 'hu'),
+            ("Kannada", 'kan', 'kn')
+        ]
+
+        self.idiomas_lista = idiomas
+        self.mapa_idiomas = {name: tess for (name, tess, google) in idiomas}
+        self.mapa_google = {tess: google for (name, tess, google) in idiomas}
+
         self.combo_idioma = QComboBox(self)
-        self.combo_idioma.setGeometry(130, 5, 80, 30)
-        self.combo_idioma.addItems(["Español", "Inglés", "Francés", "Alemán", "Italiano", "Japonés", "Chino", "Portugués"])
+        self.combo_idioma.setGeometry(130, 5, 120, 30)
+        self.combo_idioma.addItems([name for (name, _, _) in idiomas])
+        self.combo_destino = QComboBox(self)
+        self.combo_destino.setGeometry(260, 5, 120, 30)
+        self.combo_destino.addItems([name for (name, _, _) in idiomas])
+        self.combo_destino.setCurrentText('Español')
 
         self.boton_color = QPushButton("●", self)
-        self.boton_color.setGeometry(220, 5, 30, 30)
+        self.boton_color.setGeometry(390, 5, 30, 30)
 
         self.boton_minimizar = QPushButton("−", self)
         self.boton_minimizar.setGeometry(830, 5, 30, 30)
@@ -57,20 +103,30 @@ class VentanaOCR(QMainWindow):
         self.etiqueta_texto.setWordWrap(True)
         self.etiqueta_texto.setAlignment(Qt.AlignCenter)
         self.etiqueta_texto.setGeometry(10, 50, 880, 240)
-        ## Variables de control de OCR##
         self.ocr_en_ejecucion = False
         self.ocr_pausado = True
-        self.modo_continuo = True
+        self.modo_continuo = False
         self.region_ocr = None
         self.color_fondo = QColor(0, 120, 215)
-        self.mapa_idiomas = {
-            'Español': 'spa', 'Inglés': 'eng', 'Francés': 'fra', 'Alemán': 'deu',
-            'Italiano': 'ita', 'Japonés': 'jpn', 'Chino': 'chi_sim', 'Portugués': 'por'
-        }
         self.resultado_ocr_signal.connect(self.actualizar_etiqueta)
+        self.download_progress_signal.connect(self._on_download_progress)
+        self.download_status_signal.connect(self._on_download_status)
         self.timer = None
+        try:
+            self.log_dir = os.path.join(os.getcwd(), 'registro')
+            os.makedirs(self.log_dir, exist_ok=True)
+            fecha = date.today().strftime('%Y-%m-%d')
+            self.log_file_path = os.path.join(self.log_dir, f"{fecha}.txt")
+        except Exception:
+            self.log_dir = None
+            self.log_file_path = None
+
+        self.progress_bar = QProgressBar(self)
+        self.progress_bar.setGeometry(10, 40, 400, 10)
+        self.progress_bar.setVisible(False)
+
+        self.combo_idioma.currentIndexChanged.connect(self._on_idioma_origen_changed) #Mapeo
         
-        # Conectar botones
         self.boton_seleccionar.clicked.connect(self.seleccionar_region)
         self.boton_pausa.clicked.connect(self.alternar_pausa)
         self.boton_captura.clicked.connect(self.tomar_snapshot)
@@ -92,13 +148,23 @@ class VentanaOCR(QMainWindow):
         self.etiqueta_texto.setText("Región seleccionada")
         
     def alternar_pausa(self):
-        self.ocr_pausado = not self.ocr_pausado
-        self.boton_pausa.setText("▶" if self.ocr_pausado else "⏸")
-        if self.ocr_pausado:
-            self.detener_ocr_continuo()
-            self.etiqueta_texto.setText("OCR pausado")
-        elif self.modo_continuo and self.region_ocr:
-            self.iniciar_ocr_continuo()
+        if not self.modo_continuo:
+            self.modo_continuo = True
+            self.ocr_pausado = False
+            self.boton_pausa.setText("⏸")
+            if self.region_ocr:
+                self.iniciar_ocr_continuo()
+                self.etiqueta_texto.setText("OCR continuo iniciado")
+            else:
+                self.etiqueta_texto.setText("Selecciona una región primero")
+        else:
+            self.ocr_pausado = not self.ocr_pausado
+            self.boton_pausa.setText("▶" if self.ocr_pausado else "⏸")
+            if self.ocr_pausado:
+                self.detener_ocr_continuo()
+                self.etiqueta_texto.setText("OCR pausado")
+            elif self.region_ocr:
+                self.iniciar_ocr_continuo()
             
     def tomar_snapshot(self):
         if not self.region_ocr:
@@ -120,6 +186,86 @@ class VentanaOCR(QMainWindow):
         if self.timer:
             self.killTimer(self.timer)
             self.timer = None
+
+    def _on_idioma_origen_changed(self, idx):
+        # Cuando se cambia el idioma origen, comprobar si existe el traineddata
+        try:
+            nombre = self.combo_idioma.currentText()
+            tess_code = self.mapa_idiomas.get(nombre)
+            if tess_code:
+                tess_path = os.path.join(r"C:\Program Files\Tesseract-OCR\tessdata", f"{tess_code}.traineddata")
+                if not os.path.exists(tess_path):
+                    msg = QMessageBox(self)
+                    msg.setIcon(QMessageBox.Warning)
+                    msg.setWindowTitle("Falta traineddata")
+                    msg.setText(f"No se encontró {tess_code}.traineddata en la carpeta de tessdata.")
+                    msg.setInformativeText("¿Desea descargarlo desde el repositorio oficial? (requiere permisos de escritura en Program Files)")
+                    msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+                    ret = msg.exec_()
+                    if ret == QMessageBox.Yes:
+                        # iniciar descarga en background
+                        threading.Thread(target=self._download_traineddata, args=(tess_code, tess_path), daemon=True).start()
+        except Exception:
+            pass
+
+    def _on_download_progress(self, value):
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(value)
+
+    def _on_download_status(self, status_text):
+        if status_text == 'done':
+            self.progress_bar.setVisible(False)
+            self.etiqueta_texto.setText('Descarga completada')
+        else:
+            self.progress_bar.setVisible(False)
+            self.etiqueta_texto.setText(status_text)
+
+    def _download_traineddata(self, tess_code, dest_path):
+        base_url = f"https://raw.githubusercontent.com/tesseract-ocr/tessdata/master/{tess_code}.traineddata"
+        try:
+            req = urllib.request.Request(base_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req) as resp:
+                total = resp.getheader('Content-Length')
+                if total:
+                    total = int(total)
+                tmp_path = dest_path + '.part'
+                try:
+                    with open(tmp_path, 'wb') as out_file:
+                        downloaded = 0
+                        chunk_size = 8192
+                        while True:
+                            chunk = resp.read(chunk_size)
+                            if not chunk:
+                                break
+                            out_file.write(chunk)
+                            downloaded += len(chunk)
+                            if total:
+                                perc = int(downloaded * 100 / total)
+                                self.download_progress_signal.emit(perc)
+                except PermissionError:
+                    # No permisos para escribir en Program Files
+                    self.download_status_signal.emit('No hay permisos para escribir en la carpeta de Tesseract. Ejecuta el programa como administrador o copia manualmente el archivo.')
+                    # limpiar tmp
+                    try:
+                        if os.path.exists(tmp_path):
+                            os.remove(tmp_path)
+                    except Exception:
+                        pass
+                    return
+
+                # Intentar mover el archivo temporal a la ruta final
+                try:
+                    shutil.move(tmp_path, dest_path)
+                    self.download_status_signal.emit('done')
+                except PermissionError:
+                    self.download_status_signal.emit('No hay permisos para mover el archivo a la carpeta de Tesseract. Ejecuta como administrador.')
+                    try:
+                        if os.path.exists(tmp_path):
+                            os.remove(tmp_path)
+                    except Exception:
+                        pass
+        except Exception as e:
+            self.download_status_signal.emit(f"Error descarga: {str(e)}")
             
     def timerEvent(self, event):
         if event.timerId() == self.timer and self.modo_continuo and not self.ocr_pausado and not self.ocr_en_ejecucion and self.region_ocr:
@@ -148,33 +294,23 @@ class VentanaOCR(QMainWindow):
             img = enhancer.enhance(2.0)
 
             custom_config = r'--oem 3 --psm 6'
-            idioma_seleccionado = self.combo_idioma.currentText()
-            tesseract_lang = self.mapa_idiomas[idioma_seleccionado]
-            
+            idioma_origen_text = self.combo_idioma.currentText()
+            idioma_destino_text = self.combo_destino.currentText()
+            tesseract_lang = self.mapa_idiomas[idioma_origen_text]
+
             text = pytesseract.image_to_string(img, lang=tesseract_lang, config=custom_config)
-            
+
             texto_mostrado = ""
             if text.strip():
                 try:
-                    if idioma_seleccionado != 'Español':
-                        source_lang = tesseract_lang
-                        if tesseract_lang == 'chi_sim':
-                            source_lang = 'zh'
-                        elif tesseract_lang == 'jpn':
-                            source_lang = 'ja'
-                        elif tesseract_lang == 'eng':
-                            source_lang = 'en'
-                        elif tesseract_lang == 'fra':
-                            source_lang = 'fr'
-                        elif tesseract_lang == 'deu':
-                            source_lang = 'de'
-                        elif tesseract_lang == 'ita':
-                            source_lang = 'it'
-                        elif tesseract_lang == 'por':
-                            source_lang = 'pt'
-                        texto_mostrado = GoogleTranslator(source=source_lang, target='es').translate(text)
-                    else:
+                    source_lang = self.mapa_google.get(tesseract_lang, tesseract_lang)
+                    target_tess = self.mapa_idiomas.get(idioma_destino_text, 'spa')
+                    target_lang = self.mapa_google.get(target_tess, target_tess)
+                    #Redundate check
+                    if source_lang == target_lang:
                         texto_mostrado = text
+                    else:
+                        texto_mostrado = GoogleTranslator(source=source_lang, target=target_lang).translate(text)
                 except Exception as e:
                     texto_mostrado = f"Error: {str(e)}"
             else:
@@ -184,8 +320,33 @@ class VentanaOCR(QMainWindow):
             self.ocr_en_ejecucion = False
 
     def actualizar_etiqueta(self, shown_text):
+        if self.modo_continuo and self.ocr_pausado:
+            self.etiqueta_texto.setText("OCR pausado")
+            self.etiqueta_texto.repaint()
+            return
+
         self.etiqueta_texto.setText(shown_text)
         self.etiqueta_texto.repaint()
+
+        # Registro
+        try:
+            excluded = {
+                "OCR pausado", "Región seleccionada", "Selecciona una región primero",
+                "No se pudo obtener la pantalla.", "No se encontró texto"
+            }
+            if self.log_file_path and shown_text and shown_text.strip() and shown_text not in excluded:
+                self.append_to_log(shown_text)
+        except Exception:
+            pass
+
+    def append_to_log(self, text):
+        if not self.log_file_path:
+            return
+        try:
+            with open(self.log_file_path, 'a', encoding='utf-8') as f:
+                f.write(text.replace('\r', '') + '\n')
+        except Exception:
+            pass
 
 
         
@@ -232,8 +393,9 @@ class VentanaOCR(QMainWindow):
         }}
         """
         self.combo_idioma.setStyleSheet(combo_style)
+        if hasattr(self, 'combo_destino'):
+            self.combo_destino.setStyleSheet(combo_style)
 
-    # Alias para compatibilidad con llamadas previas que usan el nombre en inglés
     def update_button_styles(self):
         self.actualizar_estilos_botones()
     
@@ -247,7 +409,6 @@ class VentanaOCR(QMainWindow):
         
         self.update_button_styles()
 
-    ##Funciones para mover la ventana##
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.ocr_pausado = True
