@@ -11,7 +11,6 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QPushButton, QCol
 from PIL import Image, ImageEnhance
 import os
 from datetime import date
-
 from deep_translator import GoogleTranslator
 
 try:
@@ -23,9 +22,10 @@ except Exception:
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 class VentanaOCR(QMainWindow):
-    resultado_ocr_signal = pyqtSignal(str)
-    download_progress_signal = pyqtSignal(int)
-    download_status_signal = pyqtSignal(str)
+    senalResultadoOcr = pyqtSignal(str)
+    senalProgresoDescarga = pyqtSignal(int)
+    senalEstadoDescarga = pyqtSignal(str)
+    senalScriptDetectado = pyqtSignal(str)
     
     def __init__(self):
         super().__init__()
@@ -34,18 +34,18 @@ class VentanaOCR(QMainWindow):
         self.setGeometry(100, 100, 900, 300)
         self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
         self.setWindowOpacity(0.7)
-        self.boton_seleccionar = QPushButton("⬚", self)
-        self.boton_seleccionar.setGeometry(10, 5, 30, 30)
+        self.botonSeleccionar = QPushButton("⬚", self)
+        self.botonSeleccionar.setGeometry(10, 5, 30, 30)
 
-        self.boton_pausa = QPushButton("▶", self)
-        self.boton_pausa.setGeometry(50, 5, 30, 30)
+        self.botonPausa = QPushButton("▶", self)
+        self.botonPausa.setGeometry(50, 5, 30, 30)
 
-        self.boton_captura = QPushButton("📷", self)
-        self.boton_captura.setGeometry(90, 5, 30, 30)
+        self.botonCaptura = QPushButton("📷", self)
+        self.botonCaptura.setGeometry(90, 5, 30, 30)
 
         # mapa (display, tesseract_code, google_code)
         idiomas = [
-            ("Chino", 'chi_sim', 'zh'),
+            ("Chino", 'chi_sim', 'zh-CN'),
             ("Español", 'spa', 'es'),
             ("Inglés", 'eng', 'en'),
             ("Hindi", 'hin', 'hi'),
@@ -80,117 +80,129 @@ class VentanaOCR(QMainWindow):
         self.idiomas_lista = idiomas
         self.mapa_idiomas = {name: tess for (name, tess, google) in idiomas}
         self.mapa_google = {tess: google for (name, tess, google) in idiomas}
-
-        self.combo_idioma = QComboBox(self)
-        self.combo_idioma.setGeometry(130, 5, 120, 30)
-        self.combo_idioma.addItems([name for (name, _, _) in idiomas])
-        self.combo_destino = QComboBox(self)
-        self.combo_destino.setGeometry(260, 5, 120, 30)
-        self.combo_destino.addItems([name for (name, _, _) in idiomas])
-        self.combo_destino.setCurrentText('Español')
-
-        self.boton_color = QPushButton("●", self)
-        self.boton_color.setGeometry(390, 5, 30, 30)
-
-        self.boton_minimizar = QPushButton("−", self)
-        self.boton_minimizar.setGeometry(830, 5, 30, 30)
-
-        self.boton_cerrar = QPushButton("×", self)
-        self.boton_cerrar.setGeometry(870, 5, 30, 30)
-
-        self.etiqueta_texto = QLabel("Selecciona una región para comenzar", self)
-        self.etiqueta_texto.setStyleSheet("color: white; font-size: 18px; font-weight: bold; padding: 10px;")
-        self.etiqueta_texto.setWordWrap(True)
-        self.etiqueta_texto.setAlignment(Qt.AlignCenter)
-        self.etiqueta_texto.setGeometry(10, 50, 880, 240)
-        self.ocr_en_ejecucion = False
-        self.ocr_pausado = True
-        self.modo_continuo = False
-        self.region_ocr = None
-        self.color_fondo = QColor(0, 120, 215)
-        self.resultado_ocr_signal.connect(self.actualizar_etiqueta)
-        self.download_progress_signal.connect(self._on_download_progress)
-        self.download_status_signal.connect(self._on_download_status)
+        # Variables de UI
+        self.comboIdioma = QComboBox(self)
+        self.comboIdioma.setGeometry(130, 5, 120, 30)
+        self.comboIdioma.addItems([name for (name, _, _) in idiomas])
+        self.comboDestino = QComboBox(self)
+        self.comboDestino.setGeometry(260, 5, 120, 30)
+        self.comboDestino.addItems([name for (name, _, _) in idiomas])
+        self.comboDestino.setCurrentText('Español')
+        self.colorFondo = QColor(50, 50, 50)
+        # Botones de control
+        self.botonColor = QPushButton("●", self)
+        self.botonColor.setGeometry(390, 5, 30, 30)
+        self.botonMinimizar = QPushButton("−", self)
+        self.botonMinimizar.setGeometry(830, 5, 30, 30)
+        self.botonCerrar = QPushButton("×", self)
+        self.botonCerrar.setGeometry(870, 5, 30, 30)
+        # Etiqueta de texto
+        self.etiquetaTexto = QLabel("Selecciona una región para comenzar", self)
+        self.etiquetaTexto.setStyleSheet("color: white; font-size: 18px; font-weight: bold; padding: 10px;")
+        self.etiquetaTexto.setWordWrap(True)
+        self.etiquetaTexto.setAlignment(Qt.AlignCenter)
+        self.etiquetaTexto.setGeometry(10, 50, 880, 240)
+        # Variables de estado
+        self.ocrEnEjecucion = False
+        self.ocrPausado = True
+        self.modoContinuo = False
+        self.regionOcr = None
         self.timer = None
+        # Conectar señales
+        self.senalResultadoOcr.connect(self.actualizar_etiqueta)
+        self.senalProgresoDescarga.connect(self.alProgresoDescarga)
+        self.senalEstadoDescarga.connect(self.alEstadoDescarga)
+        # Configurar registro
         try:
-            self.log_dir = os.path.join(os.getcwd(), 'registro')
-            os.makedirs(self.log_dir, exist_ok=True)
-            fecha = date.today().strftime('%Y-%m-%d')
-            self.log_file_path = os.path.join(self.log_dir, f"{fecha}.txt")
+            self.logDir = os.path.join(os.getcwd(), 'registro')
+            os.makedirs(self.logDir, exist_ok=True)
+            fecha_base = date.today().strftime('%Y-%m-%d')
+            filename = f"{fecha_base}.txt"
+            i = 1
+            while os.path.exists(os.path.join(self.logDir, filename)):
+                filename = f"{fecha_base}-{i}.txt"
+                i += 1
+            self.logFilePath = os.path.join(self.logDir, filename)
         except Exception:
-            self.log_dir = None
-            self.log_file_path = None
+            self.logDir = None
+            self.logFilePath = None
+        # Barra de progreso para descargas
+        self.progressBar = QProgressBar(self)
+        self.progressBar.setGeometry(10, 40, 400, 10)
+        self.progressBar.setVisible(False)
 
-        self.progress_bar = QProgressBar(self)
-        self.progress_bar.setGeometry(10, 40, 400, 10)
-        self.progress_bar.setVisible(False)
+        self.comboIdioma.currentIndexChanged.connect(self.alCambiarIdiomaOrigen) #Mapeo
+        # Conectar señal de script detectado
+        self.senalScriptDetectado.connect(self.alScriptDetectado)
+        self.botonSeleccionar.clicked.connect(self.seleccionarRegion)
+        self.botonPausa.clicked.connect(self.alternarPausa)
+        self.botonCaptura.clicked.connect(self.tomarSnapshot)
+        self.botonColor.clicked.connect(self.cambiarColor)
+        self.botonMinimizar.clicked.connect(self.showMinimized)
+        self.botonCerrar.clicked.connect(self.close)
 
-        self.combo_idioma.currentIndexChanged.connect(self._on_idioma_origen_changed) #Mapeo
-        
-        self.boton_seleccionar.clicked.connect(self.seleccionar_region)
-        self.boton_pausa.clicked.connect(self.alternar_pausa)
-        self.boton_captura.clicked.connect(self.tomar_snapshot)
-        self.boton_color.clicked.connect(self.cambiar_color)
-        self.boton_minimizar.clicked.connect(self.showMinimized)
-        self.boton_cerrar.clicked.connect(self.close)
-
-    def seleccionar_region(self):
+    def seleccionarRegion(self):
         self.hide()
-        self.region_selector = RegionSelector()
-        self.region_selector.region_selected.connect(self.establecer_region_ocr)
-        self.region_selector.show()
+        self.regionSelector = SelectorRegion()
+        self.regionSelector.region_seleccionada.connect(self.establecerRegionOcr)
+        self.regionSelector.show()
         
-    def establecer_region_ocr(self, x, y, w, h):
-        self.region_ocr = (x, y, w, h)
+    def establecerRegionOcr(self, x, y, w, h):
+        self.regionOcr = (x, y, w, h)
         self.show()
-        if self.modo_continuo and not self.ocr_pausado:
-            self.iniciar_ocr_continuo()
-        self.etiqueta_texto.setText("Región seleccionada")
+        # Detectar script/idioma de forma ligera en background
+        try:
+            self.detectarScriptYConfigurarIdioma()
+        except Exception:
+            pass
+        if self.modoContinuo and not self.ocrPausado:
+            self.iniciarOcrContinuo()
+        self.etiquetaTexto.setText("Región seleccionada")
         
-    def alternar_pausa(self):
-        if not self.modo_continuo:
-            self.modo_continuo = True
-            self.ocr_pausado = False
-            self.boton_pausa.setText("⏸")
-            if self.region_ocr:
-                self.iniciar_ocr_continuo()
-                self.etiqueta_texto.setText("OCR continuo iniciado")
+    def alternarPausa(self):
+        if not self.modoContinuo:
+            self.modoContinuo = True
+            self.ocrPausado = False
+            self.botonPausa.setText("⏸")
+            if self.regionOcr:
+                self.iniciarOcrContinuo()
+                self.etiquetaTexto.setText("OCR continuo iniciado")
             else:
-                self.etiqueta_texto.setText("Selecciona una región primero")
+                self.etiquetaTexto.setText("Selecciona una región primero")
         else:
-            self.ocr_pausado = not self.ocr_pausado
-            self.boton_pausa.setText("▶" if self.ocr_pausado else "⏸")
-            if self.ocr_pausado:
-                self.detener_ocr_continuo()
-                self.etiqueta_texto.setText("OCR pausado")
-            elif self.region_ocr:
-                self.iniciar_ocr_continuo()
+            self.ocrPausado = not self.ocrPausado
+            self.botonPausa.setText("▶" if self.ocrPausado else "⏸")
+            if self.ocrPausado:
+                self.detenerOcrContinuo()
+                self.etiquetaTexto.setText("OCR pausado")
+            elif self.regionOcr:
+                self.iniciarOcrContinuo()
             
-    def tomar_snapshot(self):
-        if not self.region_ocr:
-            self.etiqueta_texto.setText("Selecciona una región primero")
+    def tomarSnapshot(self):
+        if not self.regionOcr:
+            self.etiquetaTexto.setText("Selecciona una región primero")
             return
-        self.modo_continuo = False
-        self.detener_ocr_continuo()
-        if not self.ocr_en_ejecucion:
-            self.ocr_en_ejecucion = True
+        self.modoContinuo = False
+        self.detenerOcrContinuo()
+        if not self.ocrEnEjecucion:
+            self.ocrEnEjecucion = True
             threading.Thread(target=self.realizar_ocr, daemon=True).start()
             
-    def iniciar_ocr_continuo(self):
-        self.modo_continuo = True
+    def iniciarOcrContinuo(self):
+        self.modoContinuo = True
         if self.timer:
             self.killTimer(self.timer)
         self.timer = self.startTimer(700)
         
-    def detener_ocr_continuo(self):
+    def detenerOcrContinuo(self):
         if self.timer:
             self.killTimer(self.timer)
             self.timer = None
 
-    def _on_idioma_origen_changed(self, idx):
+    def alCambiarIdiomaOrigen(self, idx):
         # Cuando se cambia el idioma origen, comprobar si existe el traineddata
         try:
-            nombre = self.combo_idioma.currentText()
+            nombre = self.comboIdioma.currentText()
             tess_code = self.mapa_idiomas.get(nombre)
             if tess_code:
                 tess_path = os.path.join(r"C:\Program Files\Tesseract-OCR\tessdata", f"{tess_code}.traineddata")
@@ -203,130 +215,246 @@ class VentanaOCR(QMainWindow):
                     msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
                     ret = msg.exec_()
                     if ret == QMessageBox.Yes:
-                        # iniciar descarga en background
-                        threading.Thread(target=self._download_traineddata, args=(tess_code, tess_path), daemon=True).start()
+                        # Iniciar descarga
+                        threading.Thread(target=self.descargarTrainedData, args=(tess_code, tess_path), daemon=True).start()
         except Exception:
             pass
 
-    def _on_download_progress(self, value):
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setValue(value)
+    def detectarScriptYConfigurarIdioma(self):
+        # Lanzar detección en background para no bloquear la UI
+        threading.Thread(target=self.trabajadorDeteccionScript, daemon=True).start()
 
-    def _on_download_status(self, status_text):
+    def trabajadorDeteccionScript(self):
+        try:
+            if not self.regionOcr:
+                return
+            pantalla = QGuiApplication.primaryScreen()
+            if not pantalla:
+                return
+            x, y, w, h = self.regionOcr
+            captura_pantalla = pantalla.grabWindow(0, x, y, w, h).toImage()
+            captura_pantalla = captura_pantalla.convertToFormat(4)
+            anchura = captura_pantalla.width()
+            altura = captura_pantalla.height()
+
+            puntero = captura_pantalla.bits()
+            puntero.setsize(captura_pantalla.byteCount())
+            imagen = Image.frombytes("RGBA", (anchura, altura), puntero.asstring())
+            imagen = imagen.convert('L')
+
+            # Intentar OSD y comprobar la confianza del script; reintentar si es baja (< 0.6)
+            osd = ''
+            script = ''
+            conf_script = None
+            intentos_max = 3
+            intento = 0
+            while intento < intentos_max:
+                intento += 1
+                try:
+                    osd = pytesseract.image_to_osd(imagen, config='--psm 0')
+                except Exception:
+                    osd = ''
+
+                # Parsear script y confianza
+                script = ''
+                conf_script = None
+                for line in (osd or '').splitlines():
+                    if ':' not in line:
+                        continue
+                    key_part, val_part = line.split(':', 1)
+                    key_l = key_part.strip().lower()
+                    val = val_part.strip()
+                    if 'script' == key_l or key_l.startswith('script'):
+                        # puede ser 'script' o 'script confidence'
+                        # Si la línea es 'script: Han' -> key_l == 'script'
+                        if key_l == 'script':
+                            script = val
+                        elif 'confidence' in key_l:
+                            try:
+                                conf_script = float(val) / 100.0
+                            except Exception:
+                                try:
+                                    conf_script = float(val)
+                                except Exception:
+                                    conf_script = None
+
+                # Si no obtuvimos confianza, buscar línea 'script confidence' explícita
+                if conf_script is None:
+                    for line in (osd or '').splitlines():
+                        if 'script confidence' in line.lower():
+                            try:
+                                conf_script = float(line.split(':', 1)[1].strip()) / 100.0
+                            except Exception:
+                                conf_script = None
+
+                # Si tenemos conf_script y es baja, reintentar OSD (hasta intentos_max)
+                if conf_script is not None and conf_script < 0.6 and intento < intentos_max:
+                    continue
+                break
+
+            # Mapeo robusto de script -> idioma a seleccionar (usar claves en minúsculas)
+            script_map = {
+                'latin': 'Inglés', 'latín': 'Inglés',
+                'han': 'Japonés', 'han script': 'Japonés', 'chinese': 'Chino',
+                'hiragana': 'Japonés', 'katakana': 'Japonés', 'japanese': 'Japonés',
+                'hangul': 'Coreano', 'hangul syllables': 'Coreano',
+                'cyrillic': 'Ruso', 'devanagari': 'Hindi', 'arabic': 'Persa',
+                'hebrew': 'Hebreo', 'greek': 'Griego', 'thai': 'Tailandés',
+                'bengali': 'Bengalí', 'kannada': 'Kannada', 'gujarati': 'Gujarati',
+                'tamil': 'Tamil', 'telugu': 'Telugú'
+            }
+
+            lang_name = 'Inglés'
+            if script:
+                key = script.strip().lower()
+                if key in script_map:
+                    lang_name = script_map[key]
+                else:
+                    for k, v in script_map.items():
+                        if k in key:
+                            lang_name = v
+                            break
+
+            # Emitir también la confianza como parte del flujo (opcional)
+            self.senalScriptDetectado.emit(lang_name)
+        except Exception:
+            try:
+                self.senalScriptDetectado.emit('Inglés')
+            except Exception:
+                pass
+
+    def alScriptDetectado(self, language_name):
+        # Actualiza combo de idioma origen con el idioma detectado
+        try:
+            if language_name in self.mapa_idiomas:
+                self.comboIdioma.setCurrentText(language_name)
+                self.etiquetaTexto.setText(f"Idioma detectado: {language_name}")
+            else:
+                # Fallback a Inglés para escrituras latinas u desconocidas
+                self.comboIdioma.setCurrentText('Inglés')
+                self.etiquetaTexto.setText(f"Idioma detectado: Inglés")
+        except Exception:
+            pass
+
+    def alProgresoDescarga(self, value):
+        self.progressBar.setVisible(True)
+        self.progressBar.setValue(value)
+
+    def alEstadoDescarga(self, status_text):
         if status_text == 'done':
-            self.progress_bar.setVisible(False)
-            self.etiqueta_texto.setText('Descarga completada')
+            self.progressBar.setVisible(False)
+            self.etiquetaTexto.setText('Descarga completada')
         else:
-            self.progress_bar.setVisible(False)
-            self.etiqueta_texto.setText(status_text)
+            self.progressBar.setVisible(False)
+            self.etiquetaTexto.setText(status_text)
 
-    def _download_traineddata(self, tess_code, dest_path):
+    def descargarTrainedData(self, tess_code, dest_path):
         base_url = f"https://raw.githubusercontent.com/tesseract-ocr/tessdata/master/{tess_code}.traineddata"
         try:
-            req = urllib.request.Request(base_url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req) as resp:
-                total = resp.getheader('Content-Length')
-                if total:
-                    total = int(total)
-                tmp_path = dest_path + '.part'
+            solicitud = urllib.request.Request(base_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(solicitud) as respuesta:
+                total_bytes = respuesta.getheader('Content-Length')
+                if total_bytes:
+                    total_bytes = int(total_bytes)
+                ruta_tmp = dest_path + '.part'
                 try:
-                    with open(tmp_path, 'wb') as out_file:
-                        downloaded = 0
-                        chunk_size = 8192
+                    with open(ruta_tmp, 'wb') as archivo_salida:
+                        descargado = 0
+                        tam_bloque = 8192
                         while True:
-                            chunk = resp.read(chunk_size)
-                            if not chunk:
+                            bloque = respuesta.read(tam_bloque)
+                            if not bloque:
                                 break
-                            out_file.write(chunk)
-                            downloaded += len(chunk)
-                            if total:
-                                perc = int(downloaded * 100 / total)
-                                self.download_progress_signal.emit(perc)
+                            archivo_salida.write(bloque)
+                            descargado += len(bloque)
+                            if total_bytes:
+                                perc = int(descargado * 100 / total_bytes)
+                                self.senalProgresoDescarga.emit(perc)
                 except PermissionError:
                     # No permisos para escribir en Program Files
-                    self.download_status_signal.emit('No hay permisos para escribir en la carpeta de Tesseract. Ejecuta el programa como administrador o copia manualmente el archivo.')
+                    self.senalEstadoDescarga.emit('No hay permisos para escribir en la carpeta de Tesseract. Ejecuta el programa como administrador o copia manualmente el archivo.')
                     # limpiar tmp
                     try:
-                        if os.path.exists(tmp_path):
-                            os.remove(tmp_path)
+                        if os.path.exists(ruta_tmp):
+                            os.remove(ruta_tmp)
                     except Exception:
                         pass
                     return
 
                 # Intentar mover el archivo temporal a la ruta final
                 try:
-                    shutil.move(tmp_path, dest_path)
-                    self.download_status_signal.emit('done')
+                    shutil.move(ruta_tmp, dest_path)
+                    self.senalEstadoDescarga.emit('done')
                 except PermissionError:
-                    self.download_status_signal.emit('No hay permisos para mover el archivo a la carpeta de Tesseract. Ejecuta como administrador.')
+                    self.senalEstadoDescarga.emit('No hay permisos para mover el archivo a la carpeta de Tesseract. Ejecuta como administrador.')
                     try:
-                        if os.path.exists(tmp_path):
-                            os.remove(tmp_path)
+                        if os.path.exists(ruta_tmp):
+                            os.remove(ruta_tmp)
                     except Exception:
                         pass
         except Exception as e:
-            self.download_status_signal.emit(f"Error descarga: {str(e)}")
+            self.senalEstadoDescarga.emit(f"Error descarga: {str(e)}")
             
     def timerEvent(self, event):
-        if event.timerId() == self.timer and self.modo_continuo and not self.ocr_pausado and not self.ocr_en_ejecucion and self.region_ocr:
-            self.ocr_en_ejecucion = True
+        if event.timerId() == self.timer and self.modoContinuo and not self.ocrPausado and not self.ocrEnEjecucion and self.regionOcr:
+            self.ocrEnEjecucion = True
             threading.Thread(target=self.realizar_ocr, daemon=True).start()
 
     def realizar_ocr(self):
         try:
-            screen = QGuiApplication.primaryScreen()
-            if not screen:
-                self.resultado_ocr_signal.emit("No se pudo obtener la pantalla.")
+            pantalla = QGuiApplication.primaryScreen()
+            if not pantalla:
+                self.senalResultadoOcr.emit("No se pudo obtener la pantalla.")
                 return
-                
-            x, y, w, h = self.region_ocr
-            screenshot = screen.grabWindow(0, x, y, w, h).toImage()
-            screenshot = screenshot.convertToFormat(4)
-            width = screenshot.width()
-            height = screenshot.height()
 
-            ptr = screenshot.bits()
-            ptr.setsize(screenshot.byteCount())
-            img = Image.frombytes("RGBA", (width, height), ptr.asstring())
+            x, y, w, h = self.regionOcr
+            captura_pantalla = pantalla.grabWindow(0, x, y, w, h).toImage()
+            captura_pantalla = captura_pantalla.convertToFormat(4)
+            anchura = captura_pantalla.width()
+            altura = captura_pantalla.height()
 
-            img = img.convert('L')
-            enhancer = ImageEnhance.Contrast(img)
-            img = enhancer.enhance(2.0)
+            ptr = captura_pantalla.bits()
+            ptr.setsize(captura_pantalla.byteCount())
+            imagen = Image.frombytes("RGBA", (anchura, altura), ptr.asstring())
 
-            custom_config = r'--oem 3 --psm 6'
-            idioma_origen_text = self.combo_idioma.currentText()
-            idioma_destino_text = self.combo_destino.currentText()
-            tesseract_lang = self.mapa_idiomas[idioma_origen_text]
+            imagen = imagen.convert('L')
+            enhancer = ImageEnhance.Contrast(imagen)
+            imagen = enhancer.enhance(2.0)
 
-            text = pytesseract.image_to_string(img, lang=tesseract_lang, config=custom_config)
+            config_personalizada = r'--oem 3 --psm 6'
+            idiomaOrigenText = self.comboIdioma.currentText()
+            idiomaDestinoText = self.comboDestino.currentText()
+            tesseractLang = self.mapa_idiomas[idiomaOrigenText]
 
-            texto_mostrado = ""
-            if text.strip():
+            texto = pytesseract.image_to_string(imagen, lang=tesseractLang, config=config_personalizada)
+
+            textoMostrado = ""
+            if texto.strip():
                 try:
-                    source_lang = self.mapa_google.get(tesseract_lang, tesseract_lang)
-                    target_tess = self.mapa_idiomas.get(idioma_destino_text, 'spa')
-                    target_lang = self.mapa_google.get(target_tess, target_tess)
-                    #Redundate check
-                    if source_lang == target_lang:
-                        texto_mostrado = text
+                    idiomaOrigenCod = self.mapa_google.get(tesseractLang, tesseractLang)
+                    tessObjetivo = self.mapa_idiomas.get(idiomaDestinoText, 'spa')
+                    idiomaObjetivoCod = self.mapa_google.get(tessObjetivo, tessObjetivo)
+                    # Redundante check
+                    if idiomaOrigenCod == idiomaObjetivoCod:
+                        textoMostrado = texto
                     else:
-                        texto_mostrado = GoogleTranslator(source=source_lang, target=target_lang).translate(text)
+                        textoMostrado = GoogleTranslator(source=idiomaOrigenCod, target=idiomaObjetivoCod).translate(texto)
                 except Exception as e:
-                    texto_mostrado = f"Error: {str(e)}"
+                    textoMostrado = f"Error: {str(e)}"
             else:
-                texto_mostrado = "No se encontró texto"
-            self.resultado_ocr_signal.emit(texto_mostrado)
+                textoMostrado = "No se encontró texto"
+            self.senalResultadoOcr.emit(textoMostrado)
         finally:
-            self.ocr_en_ejecucion = False
+            self.ocrEnEjecucion = False
 
     def actualizar_etiqueta(self, shown_text):
-        if self.modo_continuo and self.ocr_pausado:
-            self.etiqueta_texto.setText("OCR pausado")
-            self.etiqueta_texto.repaint()
+        if self.modoContinuo and self.ocrPausado:
+            self.etiquetaTexto.setText("OCR pausado")
+            self.etiquetaTexto.repaint()
             return
 
-        self.etiqueta_texto.setText(shown_text)
-        self.etiqueta_texto.repaint()
+        self.etiquetaTexto.setText(shown_text)
+        self.etiquetaTexto.repaint()
 
         # Registro
         try:
@@ -334,16 +462,16 @@ class VentanaOCR(QMainWindow):
                 "OCR pausado", "Región seleccionada", "Selecciona una región primero",
                 "No se pudo obtener la pantalla.", "No se encontró texto"
             }
-            if self.log_file_path and shown_text and shown_text.strip() and shown_text not in excluded:
-                self.append_to_log(shown_text)
+            if self.logFilePath and shown_text and shown_text.strip() and shown_text not in excluded:
+                self.agregarAlRegistro(shown_text)
         except Exception:
             pass
 
-    def append_to_log(self, text):
-        if not self.log_file_path:
+    def agregarAlRegistro(self, text):
+        if not self.logFilePath:
             return
         try:
-            with open(self.log_file_path, 'a', encoding='utf-8') as f:
+            with open(self.logFilePath, 'a', encoding='utf-8') as f:
                 f.write(text.replace('\r', '') + '\n')
         except Exception:
             pass
@@ -373,12 +501,12 @@ class VentanaOCR(QMainWindow):
         }}
         """
         
-        self.boton_seleccionar.setStyleSheet(button_style)
-        self.boton_pausa.setStyleSheet(button_style)
-        self.boton_captura.setStyleSheet(button_style)
-        self.boton_color.setStyleSheet(button_style)
-        self.boton_minimizar.setStyleSheet(button_style)
-        self.boton_cerrar.setStyleSheet(button_style)
+        self.botonSeleccionar.setStyleSheet(button_style)
+        self.botonPausa.setStyleSheet(button_style)
+        self.botonCaptura.setStyleSheet(button_style)
+        self.botonColor.setStyleSheet(button_style)
+        self.botonMinimizar.setStyleSheet(button_style)
+        self.botonCerrar.setStyleSheet(button_style)
         
         combo_style = f"""
         QComboBox {{
@@ -392,9 +520,9 @@ class VentanaOCR(QMainWindow):
             border: none;
         }}
         """
-        self.combo_idioma.setStyleSheet(combo_style)
-        if hasattr(self, 'combo_destino'):
-            self.combo_destino.setStyleSheet(combo_style)
+        self.comboIdioma.setStyleSheet(combo_style)
+        if hasattr(self, 'comboDestino'):
+            self.comboDestino.setStyleSheet(combo_style)
 
     def update_button_styles(self):
         self.actualizar_estilos_botones()
@@ -411,46 +539,46 @@ class VentanaOCR(QMainWindow):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.ocr_pausado = True
-            self.old_pos = event.globalPos()
+            self.ocrPausado = True
+            self.oldPos = event.globalPos()
 
     def mouseMoveEvent(self, event):
         if event.buttons() == Qt.LeftButton:
-            delta = event.globalPos() - self.old_pos
+            delta = event.globalPos() - self.oldPos
             self.move(self.x() + delta.x(), self.y() + delta.y())
-            self.old_pos = event.globalPos()
+            self.oldPos = event.globalPos()
     def mouseReleaseEvent(self, event):
-        self.ocr_pausado = False
+        self.ocrPausado = False
         super().mouseReleaseEvent(event)
 
-class RegionSelector(QMainWindow):
-    region_selected = pyqtSignal(int, int, int, int)
+class SelectorRegion(QMainWindow):
+    region_seleccionada = pyqtSignal(int, int, int, int)
     
     def __init__(self):
         super().__init__()
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.showFullScreen()
-        self.rubber_band = QRubberBand(QRubberBand.Rectangle, self)
+        self.rubberBand = QRubberBand(QRubberBand.Rectangle, self)
         self.origin = None
         
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.origin = event.pos()
-            self.rubber_band.setGeometry(self.origin.x(), self.origin.y(), 0, 0)
-            self.rubber_band.show()
+            self.rubberBand.setGeometry(self.origin.x(), self.origin.y(), 0, 0)
+            self.rubberBand.show()
             
     def mouseMoveEvent(self, event):
         if self.origin:
-            self.rubber_band.setGeometry(min(self.origin.x(), event.x()),
+            self.rubberBand.setGeometry(min(self.origin.x(), event.x()),
                                        min(self.origin.y(), event.y()),
                                        abs(event.x() - self.origin.x()),
                                        abs(event.y() - self.origin.y()))
             
     def mouseReleaseEvent(self, event):
         if self.origin:
-            rect = self.rubber_band.geometry()
-            self.region_selected.emit(rect.x(), rect.y(), rect.width(), rect.height())
+            rect = self.rubberBand.geometry()
+            self.region_seleccionada.emit(rect.x(), rect.y(), rect.width(), rect.height())
             self.close()
             
     def paintEvent(self, event):
